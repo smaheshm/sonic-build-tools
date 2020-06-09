@@ -1,12 +1,9 @@
 pipeline {
-    agent { dockerfile { filename 'jenkins/common/sonic-swss-common-build-ubuntu/Dockerfile' } }
+    agent { node { label 'sonic-slave' } }
 
     options {
         buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '10'))
-    }
 
-    environment {
-        SONIC_TEAM_WEBHOOK = credentials('public-jenkins-builder')
     }
 
     triggers {
@@ -16,45 +13,29 @@ pipeline {
     stages {
         stage('Prepare') {
             steps {
-                dir('sonic-swss-common') {
+                dir('sonic-ztp') {
                     checkout([$class: 'GitSCM',
-                              branches: [[name: 'refs/heads/master']],
-                              userRemoteConfigs: [[url: 'http://github.com/Azure/sonic-swss-common']]])
+                          branches: [[name: 'refs/heads/master']],
+                          userRemoteConfigs: [[url: 'http://github.com/Azure/sonic-ztp']]])
                 }
             }
         }
 
         stage('Build') {
             steps {
-                sh '''#!/bin/bash -ex
-
-cd sonic-swss-common
-
-./autogen.sh
-fakeroot debian/rules binary
-
-cd ../
-
-mkdir -p target
-cp *.deb target/
-'''
+                sh './scripts/common/sonic-ztp-build/build.sh'
             }
         }
-
     }
-
     post {
-
         success {
             archiveArtifacts(artifacts: 'target/*.deb')
         }
         fixed {
             slackSend(color:'#00FF00', message: "Build job back to normal: ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
-            office365ConnectorSend(webhookUrl: "${env.SONIC_TEAM_WEBHOOK}")
         }
         regression {
             slackSend(color:'#FF0000', message: "Build job Regression: ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
-            office365ConnectorSend(webhookUrl: "${env.SONIC_TEAM_WEBHOOK}")
         }
     }
 }

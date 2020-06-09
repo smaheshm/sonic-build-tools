@@ -1,8 +1,16 @@
 pipeline {
     agent { node { label 'jenkins-workers-slow' } }
 
+    options {
+        buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '30'))
+    }
+
     environment {
         SONIC_TEAM_WEBHOOK = credentials('public-jenkins-builder')
+    }
+
+    triggers {
+        pollSCM('@midnight')
     }
 
     stages {
@@ -29,9 +37,11 @@ pipeline {
 
 git submodule foreach --recursive '[ -f .git ] && echo "gitdir: $(realpath --relative-to=. $(cut -d" " -f2 .git))" > .git'
 
-make configure PLATFORM=mellanox
-make SONIC_CONFIG_BUILD_JOBS=1 ENABLE_SYNCD_RPC=y all
-make SONIC_CONFIG_BUILD_JOBS=1 target/sonic-mellanox.bin
+make configure PLATFORM=centec
+make SONIC_CONFIG_BUILD_JOBS=1 INSTALL_DEBUG_TOOLS=y target/sonic-centec.bin
+mv target/sonic-centec.bin target/sonic-centec-dbg.bin
+make SONIC_CONFIG_BUILD_JOBS=1 target/sonic-centec.bin
+make SONIC_CONFIG_BUILD_JOBS=1 ENABLE_SYNCD_RPC=y target/docker-syncd-centec-rpc.gz
 '''
             }
         }
@@ -49,6 +59,9 @@ make SONIC_CONFIG_BUILD_JOBS=1 target/sonic-mellanox.bin
         regression {
             slackSend(color:'#FF0000', message: "Build job Regression: ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
             office365ConnectorSend(webhookUrl: "${env.SONIC_TEAM_WEBHOOK}")
+        }
+        cleanup {
+            cleanWs(disableDeferredWipeout: false, deleteDirs: true, notFailBuild: true)
         }
     }
 }

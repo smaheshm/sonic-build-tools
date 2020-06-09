@@ -1,52 +1,46 @@
 pipeline {
-    agent { dockerfile { filename 'jenkins/common/sonic-swss-common-build-ubuntu/Dockerfile' } }
+    agent { node { label 'jenkins-worker-1' } }
 
     options {
         buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '10'))
     }
 
     environment {
+        DISTRO = 'buster'
         SONIC_TEAM_WEBHOOK = credentials('public-jenkins-builder')
     }
 
     triggers {
-        pollSCM('H/10 * * * *')
+        pollSCM('@midnight')
     }
 
     stages {
         stage('Prepare') {
             steps {
-                dir('sonic-swss-common') {
+                dir('sonic-buildimage') {
                     checkout([$class: 'GitSCM',
-                              branches: [[name: 'refs/heads/master']],
-                              userRemoteConfigs: [[url: 'http://github.com/Azure/sonic-swss-common']]])
+                              branches: [[name: '*/master']],
+                              extensions: [[$class: 'SubmoduleOption',
+                                            disableSubmodules: false,
+                                            recursiveSubmodules: true]],
+                              userRemoteConfigs: [[url: 'https://github.com/Azure/sonic-buildimage']]])
                 }
             }
         }
 
         stage('Build') {
             steps {
-                sh '''#!/bin/bash -ex
-
-cd sonic-swss-common
-
-./autogen.sh
-fakeroot debian/rules binary
-
-cd ../
-
-mkdir -p target
-cp *.deb target/
-'''
+                withCredentials([usernamePassword(credentialsId: 'sonicdev-cr', usernameVariable: 'REGISTRY_USERNAME', passwordVariable: 'REGISTRY_PASSWD')]) {
+                    sh './scripts/bldenv/sonic-slave/build.sh'
+                }
             }
         }
-
     }
 
     post {
 
         success {
-            archiveArtifacts(artifacts: 'target/*.deb')
+            archiveArtifacts(artifacts: 'sonic-buildimage/target/*.gz')
         }
         fixed {
             slackSend(color:'#00FF00', message: "Build job back to normal: ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
@@ -55,6 +49,9 @@ cp *.deb target/
         regression {
             slackSend(color:'#FF0000', message: "Build job Regression: ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
             office365ConnectorSend(webhookUrl: "${env.SONIC_TEAM_WEBHOOK}")
+        }
+        cleanup {
+            cleanWs(disableDeferredWipeout: false, deleteDirs: true, notFailBuild: true)
         }
     }
 }

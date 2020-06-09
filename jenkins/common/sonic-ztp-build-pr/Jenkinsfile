@@ -1,29 +1,27 @@
 pipeline {
-    agent { node { label 'sonic-slave-buster' } }
+    agent { node { label 'sonic-slave' } }
 
     stages {
         stage('Prepare') {
             steps {
-                checkout([$class: 'GitSCM',
+                dir('sonic-ztp') {
+                    checkout([$class: 'GitSCM',
                           branches: [[name: '${sha1}']],
-                          userRemoteConfigs: [[url: 'http://github.com/Azure/sonic-linux-kernel',
+                          userRemoteConfigs: [[url: 'http://github.com/Azure/sonic-ztp',
                                                refspec: '+refs/pull/*:refs/remotes/origin/pr/*']]])
+                }
             }
         }
 
         stage('Build') {
             steps {
-                sh '''#!/bin/bash -ex
-
-export kernel_procure_method=build
-make
-'''
+                sh './scripts/common/sonic-ztp/build.sh'
             }
         }
     }
     post {
         success {
-            archiveArtifacts(artifacts: '*.deb')
+            archiveArtifacts(artifacts: 'target/*.deb')
         }
     }
 }
